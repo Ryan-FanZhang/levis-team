@@ -1,0 +1,784 @@
+<meta charset="utf-8">
+<title>工位小队</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Noto+Sans+SC:wght@400;500;700;900&family=JetBrains+Mono:wght@400;600&display=swap">
+<style>
+/* Layout: a white "studio stage" (3D canvas) with a command bar under it; team + activity log in a side column, stacking on phones. */
+:root {
+  --bg: #eceef1;
+  --panel: #ffffff;
+  --ink: #16181c;
+  --muted: #697079;
+  --line: #dde1e6;
+  --accent: #ff6a13;
+  --accent-ink: #ffffff;
+  --stage: #f5f5f3;
+  --bubble-bg: #ffffff;
+  --bubble-ink: #16181c;
+  --f-display: "Noto Sans SC", "PingFang SC", "Microsoft YaHei", system-ui, sans-serif;
+  --f-body: "Noto Sans SC", "PingFang SC", "Microsoft YaHei", system-ui, sans-serif;
+  --f-mono: "JetBrains Mono", ui-monospace, Consolas, monospace;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg: #111317; --panel: #1a1d22; --ink: #eceef1; --muted: #9aa1aa; --line: #2a2e35;
+    --accent: #ff7a2e; --accent-ink: #160a02; color-scheme: dark;
+  }
+}
+:root[data-theme="dark"] {
+  --bg: #111317; --panel: #1a1d22; --ink: #eceef1; --muted: #9aa1aa; --line: #2a2e35;
+  --accent: #ff7a2e; --accent-ink: #160a02; color-scheme: dark;
+}
+* { box-sizing: border-box; }
+[hidden] { display: none !important; }
+body {
+  background: var(--bg); color: var(--ink); font-family: var(--f-body);
+  padding-left: max(16px, env(safe-area-inset-left, 0px));
+  padding-right: max(16px, env(safe-area-inset-right, 0px));
+  padding-block: 20px 32px;
+}
+.wrap { max-width: 1240px; margin: 0 auto; display: grid; gap: 16px; }
+header { display: flex; align-items: baseline; gap: 12px; flex-wrap: wrap; }
+h1 { font-family: var(--f-display); font-weight: 900; font-size: 26px; margin: 0; letter-spacing: .02em; text-wrap: balance; }
+header p { margin: 0; color: var(--muted); font-size: 14px; }
+.main { display: grid; grid-template-columns: minmax(0, 1fr) 320px; gap: 16px; align-items: start; }
+@media (max-width: 960px) { .main { grid-template-columns: minmax(0, 1fr); } }
+
+.stage-card { background: var(--panel); border: 1px solid var(--line); border-radius: 16px; overflow: hidden; display: grid; }
+.stage { position: relative; width: 100%; aspect-ratio: 16 / 10; max-width: 100%; background: var(--stage); }
+@media (max-width: 600px) { .stage { aspect-ratio: 1 / 1; } }
+.stage canvas { display: block; width: 100%; height: 100%; }
+.overlay { position: absolute; inset: 0; pointer-events: none; overflow: hidden; }
+.bubble {
+  position: absolute; left: 0; top: 0; transform: translate(-50%, -100%);
+  background: var(--bubble-bg); color: var(--bubble-ink);
+  font-size: 12px; font-weight: 500; line-height: 1.35; padding: 5px 9px; border-radius: 10px;
+  box-shadow: 0 2px 10px rgba(0,0,0,.12); white-space: nowrap; max-width: 220px;
+  overflow: hidden; text-overflow: ellipsis; transition: opacity .2s;
+}
+.bubble::after { content: ""; position: absolute; left: 50%; bottom: -5px; margin-left: -5px;
+  border: 5px solid transparent; border-bottom: 0; border-top-color: var(--bubble-bg); }
+.bubble.zz { background: transparent; box-shadow: none; color: #3a3d42; font-weight: 900; font-size: 15px; letter-spacing: .05em; }
+.bubble.zz::after { display: none; }
+.bubble.mgr { background: var(--accent); color: #fff; font-weight: 700; }
+.bubble.mgr::after { border-top-color: var(--accent); }
+.bubble.pct { font-family: var(--f-mono); font-size: 11px; font-weight: 600; }
+.bubble.hidden { opacity: 0; }
+
+.cmd { display: grid; gap: 10px; padding: 14px; border-top: 1px solid var(--line); }
+.cmd form { display: flex; gap: 8px; flex-wrap: wrap; }
+.cmd input, .cmd select, .cmd button {
+  font: inherit; font-size: 14px; border-radius: 10px; border: 1px solid var(--line);
+  background: var(--bg); color: var(--ink); padding: 10px 12px;
+}
+.cmd input { flex: 1 1 260px; min-width: 0; }
+.cmd select { flex: 0 1 150px; }
+.cmd button[type="submit"] { background: var(--accent); color: var(--accent-ink); border-color: transparent; font-weight: 700; padding-inline: 20px; cursor: pointer; }
+.cmd button:focus-visible, .cmd input:focus-visible, .cmd select:focus-visible, .chip:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.chips { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
+.chips span { font-size: 12px; color: var(--muted); margin-right: 2px; }
+.chip { font: inherit; font-size: 12px; padding: 5px 10px; border-radius: 999px; border: 1px solid var(--line); background: transparent; color: var(--ink); cursor: pointer; }
+.chip:hover { border-color: var(--accent); color: var(--accent); }
+.hint { font-size: 12px; color: var(--muted); }
+
+aside { display: grid; gap: 16px; min-width: 0; }
+.panel { background: var(--panel); border: 1px solid var(--line); border-radius: 16px; padding: 14px; display: grid; gap: 10px; min-width: 0; }
+.panel h2 { margin: 0; font-size: 12px; letter-spacing: .12em; color: var(--muted); font-weight: 700; display: flex; justify-content: space-between; }
+.team { display: grid; gap: 8px; }
+.member { display: grid; grid-template-columns: 12px minmax(0,1fr) auto; gap: 10px; align-items: center; cursor: pointer; padding: 4px; border-radius: 8px; }
+.member:hover { background: var(--bg); }
+.dot { width: 12px; height: 12px; border-radius: 50%; }
+.member .who { min-width: 0; }
+.member .who b { font-size: 14px; }
+.member .who small { color: var(--muted); margin-left: 6px; font-size: 12px; }
+.member .task { font-size: 12px; color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.pill { font-size: 11px; padding: 3px 8px; border-radius: 999px; background: var(--bg); color: var(--muted); font-variant-numeric: tabular-nums; white-space: nowrap; font-family: var(--f-mono); }
+.pill.working { background: var(--ink); color: var(--panel); }
+.pill.done { background: #1f9d5a; color: #fff; }
+.pill.assigned { background: var(--accent); color: var(--accent-ink); }
+.log { list-style: none; margin: 0; padding: 0; display: grid; gap: 6px; max-height: 260px; overflow-y: auto; overflow-x: hidden; font-size: 13px; }
+.log li { overflow-wrap: anywhere; display: grid; grid-template-columns: auto minmax(0,1fr); gap: 8px; }
+.log time { font-family: var(--f-mono); font-size: 11px; color: var(--muted); padding-top: 2px; font-variant-numeric: tabular-nums; }
+.log .ex { font-size: 11px; color: var(--muted); border: 1px solid var(--line); border-radius: 4px; padding: 0 4px; margin-left: 4px; }
+.conn { font-size: 12px; font-family: var(--f-mono); padding: 3px 10px; border-radius: 999px; border: 1px solid var(--line); color: var(--muted); margin-left: auto; }
+.conn.live { color: #1f9d5a; border-color: #1f9d5a; }
+.conn.off { color: #d23b33; border-color: #d23b33; }
+.approvals { display: grid; gap: 8px; }
+.approval { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 12px; padding: 10px 12px; border-radius: 12px; border: 1px solid var(--accent); background: var(--bg); }
+.approval p { margin: 0; flex: 1 1 220px; min-width: 0; font-size: 13px; overflow-wrap: anywhere; }
+.approval p b { margin-right: 6px; }
+.approval .row { display: flex; gap: 6px; }
+.approval button { font: inherit; font-size: 13px; padding: 6px 14px; border-radius: 8px; border: 1px solid var(--line); background: var(--panel); color: var(--ink); cursor: pointer; }
+.approval button.yes { background: var(--accent); color: var(--accent-ink); border-color: transparent; font-weight: 700; }
+.report { margin: 0; font-size: 13px; line-height: 1.6; white-space: pre-wrap; overflow-wrap: anywhere; max-height: 240px; overflow-y: auto; }
+</style>
+
+<div class="wrap">
+  <header>
+    <h1>工位小队</h1>
+    <p>给经理派活，经理会走到合适的同事工位上交代任务。点场景里的小人也能直接指定。</p>
+    <span class="conn" id="conn">演示模式</span>
+  </header>
+  <div class="main">
+    <div class="stage-card">
+      <div class="stage" id="stage">
+        <div class="overlay" id="overlay"></div>
+      </div>
+      <div class="cmd">
+        <div class="approvals" id="approvals" aria-live="polite"></div>
+        <form id="form" autocomplete="off">
+          <input id="task" type="text" placeholder="要干什么活？比如：整理下载文件夹" maxlength="300" aria-label="任务内容">
+          <select id="assignee" aria-label="指派给"></select>
+          <button type="submit">派活</button>
+        </form>
+        <div class="chips" id="chips"><span>试试：</span></div>
+        <div class="hint" id="queue">经理待命中</div>
+      </div>
+    </div>
+    <aside>
+      <section class="panel" id="reportPanel" hidden>
+        <h2><span>经理汇报</span></h2>
+        <p class="report" id="report"></p>
+      </section>
+      <section class="panel">
+        <h2><span>团队</span><span id="busyCount"></span></h2>
+        <div class="team" id="team"></div>
+      </section>
+      <section class="panel">
+        <h2><span>动态</span></h2>
+        <ul class="log" id="log"></ul>
+      </section>
+    </aside>
+  </div>
+</div>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+<script>
+(() => {
+const ROLES = [
+  { name: '文文', role: '文档', color: '#2fa36b', kind: 'doc',     keys: ['文档','报告','润色','翻译','写','总结','合同','邮件','简历'] },
+  { name: '数数', role: '数据', color: '#e0413a', kind: 'chart',   keys: ['数据','表格','分析','图表','统计','excel','销售','报表'] },
+  { name: '理理', role: '文件', color: '#6b4fe0', kind: 'files',   keys: ['整理','文件','清理','归档','下载','桌面','备份'] },
+  { name: '图图', role: '图片', color: '#2f7fe0', kind: 'gallery', keys: ['图片','照片','相册','设计','海报','图'] },
+  { name: '查查', role: '情报', color: '#e8b40c', kind: 'feed',    keys: ['监控','新闻','资讯','搜集','票','查','追踪','攻略'] },
+  { name: '修修', role: '系统', color: '#16b2a8', kind: 'term',    keys: ['设置','网络','系统','修复','安装','电脑','驱动','更新'] },
+];
+const EXAMPLES = ['整理下载文件夹里的安装包','分析上周销售数据做成图表','把这份合同润色一下','监控演唱会抢票信息','修复一下网络连接','做一本旅行相册'];
+const reduceMotion = matchMedia('(prefers-reduced-motion: reduce)').matches;
+
+// ---------- three.js setup ----------
+const stage = document.getElementById('stage');
+const overlay = document.getElementById('overlay');
+const renderer = new THREE.WebGLRenderer({ antialias: true });
+renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
+renderer.shadowMap.enabled = true;
+renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+renderer.outputEncoding = THREE.sRGBEncoding;
+stage.insertBefore(renderer.domElement, overlay);
+
+const scene = new THREE.Scene();
+scene.background = new THREE.Color(0xf3f3f1);
+const camera = new THREE.OrthographicCamera(-10, 10, 7, -7, 0.1, 100);
+const camTarget = new THREE.Vector3(0, 1, 1.8);
+const camOffset = new THREE.Vector3(0, 17, 19);
+camera.position.copy(camTarget).add(camOffset);
+camera.lookAt(camTarget);
+
+scene.add(new THREE.HemisphereLight(0xffffff, 0xcfd0cc, 0.55));
+const sun = new THREE.DirectionalLight(0xffffff, 0.95);
+sun.position.set(7, 18, 5);
+sun.castShadow = true;
+sun.shadow.mapSize.set(2048, 2048);
+Object.assign(sun.shadow.camera, { left: -18, right: 18, top: 18, bottom: -18, near: 1, far: 60 });
+sun.shadow.bias = -0.0006;
+sun.shadow.radius = 4;
+scene.add(sun);
+
+const M = (c, o = {}) => new THREE.MeshStandardMaterial(Object.assign({ color: c, roughness: 0.95, metalness: 0 }, o));
+const white = M(0xffffff), offWhite = M(0xf0f0ee), grey = M(0xc9cacc), black = M(0x111214, { roughness: 0.8 });
+const eyeMat = new THREE.MeshBasicMaterial({ color: 0xffffff });
+
+function box(w, h, d, mat, x, y, z, parent) {
+  const m = new THREE.Mesh(new THREE.BoxGeometry(w, h, d), mat);
+  m.position.set(x, y, z); m.castShadow = true; m.receiveShadow = true;
+  parent.add(m); return m;
+}
+const floor = new THREE.Mesh(new THREE.PlaneGeometry(80, 80), M(0xf3f3f1));
+floor.rotation.x = -Math.PI / 2; floor.receiveShadow = true; scene.add(floor);
+
+// ---------- characters (original design: round-eared bean with a scarf) ----------
+function makeCritter(color, isManager) {
+  const root = new THREE.Group();
+  const upper = new THREE.Group(); root.add(upper);
+  const body = new THREE.Mesh(new THREE.SphereGeometry(0.55, 24, 18), black);
+  body.scale.set(1, 1.1, 0.9); body.position.y = 0.55; body.castShadow = true; upper.add(body);
+  const scarfMat = M(new THREE.Color(color), { roughness: 0.7 });
+  const scarf = new THREE.Mesh(new THREE.TorusGeometry(0.4, 0.12, 12, 32), scarfMat);
+  scarf.rotation.x = Math.PI / 2; scarf.position.y = 1.05; scarf.castShadow = true; upper.add(scarf);
+  const head = new THREE.Group(); head.position.y = 1.55; upper.add(head);
+  const skull = new THREE.Mesh(new THREE.SphereGeometry(0.46, 24, 18), black); skull.castShadow = true; head.add(skull);
+  for (const s of [-1, 1]) {
+    const ear = new THREE.Mesh(new THREE.SphereGeometry(0.17, 14, 10), black);
+    ear.scale.set(1, 1.25, 0.7); ear.position.set(0.3 * s, 0.36, -0.02); ear.castShadow = true; head.add(ear);
+  }
+  const eyes = [];
+  for (const s of [-1, 1]) {
+    const e = new THREE.Mesh(new THREE.SphereGeometry(0.075, 12, 8), eyeMat);
+    e.position.set(0.17 * s, 0.06, 0.41); head.add(e); eyes.push(e);
+  }
+  const arms = [];
+  for (const s of [-1, 1]) {
+    const pivot = new THREE.Group(); pivot.position.set(0.5 * s, 0.85, 0); upper.add(pivot);
+    const a = new THREE.Mesh(new THREE.SphereGeometry(0.14, 12, 10), black);
+    a.scale.set(1, 2.2, 1); a.position.y = -0.26; a.castShadow = true; pivot.add(a); arms.push(pivot);
+  }
+  const legs = [];
+  for (const s of [-1, 1]) {
+    const pivot = new THREE.Group(); pivot.position.set(0.22 * s, 0.12, 0.02); root.add(pivot);
+    const l = new THREE.Mesh(new THREE.CylinderGeometry(0.12, 0.11, 0.62, 10), black);
+    l.position.y = -0.3; l.castShadow = true; pivot.add(l); legs.push(pivot);
+  }
+  if (isManager) {
+    const cap = new THREE.Group(); cap.position.y = 0.36; cap.rotation.z = -0.12; head.add(cap);
+    const capMat = M(new THREE.Color(color), { roughness: 0.6 });
+    const crown = new THREE.Mesh(new THREE.CylinderGeometry(0.3, 0.36, 0.26, 20), capMat); crown.castShadow = true; cap.add(crown);
+    const brim = new THREE.Mesh(new THREE.CylinderGeometry(0.28, 0.28, 0.04, 20), capMat);
+    brim.position.set(0, -0.11, 0.26); brim.scale.set(1, 1, 0.8); cap.add(brim);
+    const clip = new THREE.Group(); clip.position.set(0, -0.48, 0.1); clip.rotation.x = -0.4; arms[0].add(clip);
+    box(0.36, 0.48, 0.04, M(0xc58b4a), 0, 0, 0, clip);
+    box(0.28, 0.34, 0.01, white, 0, -0.02, 0.026, clip);
+  }
+  return { root, upper, head, eyes, arms, legs, scarf };
+}
+
+// ---------- desks ----------
+const SLOT = [[-6, -4], [0, -4], [6, -4], [-6, 3], [0, 3], [6, 3]];
+const SCREEN_W = 320, SCREEN_H = 192;
+const workers = ROLES.map((r, i) => {
+  const [dx, dz] = SLOT[i];
+  const desk = new THREE.Group(); desk.position.set(dx, 0, dz); scene.add(desk);
+  box(3.2, 0.1, 1.6, white, 0, 1.5, 0, desk);
+  for (const [lx, lz] of [[-1.5, -0.7], [-1.5, 0.7]]) box(0.07, 1.45, 0.07, grey, lx, 0.73, lz, desk);
+  box(0.85, 1.4, 1.5, offWhite, 1.15, 0.72, 0, desk); // drawer cabinet
+  box(0.75, 0.02, 0.02, grey, 1.15, 1.25, 0.76, desk);
+  box(0.75, 0.02, 0.02, grey, 1.15, 0.8, 0.76, desk);
+  // monitor
+  box(0.12, 0.85, 0.1, offWhite, 0, 1.98, -0.5, desk);
+  box(0.6, 0.04, 0.32, offWhite, 0, 1.57, -0.5, desk);
+  box(1.75, 1.08, 0.08, M(0xe9e9e7), 0, 2.95, -0.52, desk);
+  const canvas = document.createElement('canvas'); canvas.width = SCREEN_W; canvas.height = SCREEN_H;
+  const tex = new THREE.CanvasTexture(canvas); tex.encoding = THREE.sRGBEncoding; tex.anisotropy = 4;
+  const screen = new THREE.Mesh(new THREE.PlaneGeometry(1.62, 0.96), new THREE.MeshBasicMaterial({ map: tex, toneMapped: false }));
+  screen.position.set(0, 2.95, -0.475); desk.add(screen);
+  box(0.9, 0.03, 0.3, M(0xdedfe0), -0.1, 1.565, 0.2, desk); // keyboard
+  // chair
+  box(1.05, 0.12, 0.95, white, 0, 0.92, 1.2, desk);
+  box(1.05, 0.95, 0.12, white, 0, 1.45, 1.72, desk);
+  box(0.1, 0.8, 0.1, grey, 0, 0.45, 1.2, desk);
+  box(0.9, 0.05, 0.12, grey, 0, 0.04, 1.2, desk);
+  box(0.12, 0.05, 0.9, grey, 0, 0.04, 1.2, desk);
+
+  const c = makeCritter(r.color, false);
+  c.root.position.set(dx, 0.98, dz + 1.12);
+  c.root.rotation.y = Math.PI;
+  c.legs.forEach(l => l.rotation.x = -Math.PI / 2 + 0.15);
+  scene.add(c.root);
+
+  const w = Object.assign({}, r, {
+    i, x: dx, z: dz, c, canvas, tex, ctx: canvas.getContext('2d'),
+    state: 'sleep', task: null, reserved: false, idleT: 0, doneT: 0, nodT: 0,
+    yawTarget: Math.PI, seed: Math.random() * 10, lastDraw: 0, bubble: null, zz: null,
+  });
+  c.root.traverse(o => { if (o.isMesh) o.userData.worker = w; });
+  return w;
+});
+
+// manager spot
+const homeMat = new THREE.Mesh(new THREE.CircleGeometry(1.1, 40), M(0xfff1e6));
+homeMat.rotation.x = -Math.PI / 2; homeMat.position.set(0, 0.01, 8.3); homeMat.receiveShadow = true; scene.add(homeMat);
+const mgr = makeCritter('#ff6a13', true);
+const HOME = { x: 0, z: 8.3 };
+mgr.root.position.set(HOME.x, 0.62, HOME.z);
+scene.add(mgr.root);
+const manager = { c: mgr, busy: false, walking: false, path: [], onArrive: null, yaw: 0, lean: 0, tapT: 0, walkPhase: 0 };
+
+// ---------- screen drawing ----------
+function rr(ctx, x, y, w, h, r) { ctx.beginPath(); ctx.roundRect ? ctx.roundRect(x, y, w, h, r) : ctx.rect(x, y, w, h); }
+function drawScreen(w, t) {
+  const g = w.ctx, W = SCREEN_W, H = SCREEN_H;
+  g.clearRect(0, 0, W, H);
+  if (w.state === 'sleep') {
+    const gr = g.createLinearGradient(0, 0, W, H); gr.addColorStop(0, '#1b1c1f'); gr.addColorStop(1, '#070708');
+    g.fillStyle = gr; g.fillRect(0, 0, W, H); w.tex.needsUpdate = true; return;
+  }
+  const bg = g.createLinearGradient(0, 0, 0, H); bg.addColorStop(0, '#5aa2ff'); bg.addColorStop(1, '#3d7fe6');
+  g.fillStyle = bg; g.fillRect(0, 0, W, H);
+  if (w.state === 'idle' || w.state === 'alert') {
+    for (let k = 0; k < 4; k++) { g.fillStyle = 'rgba(255,255,255,.85)'; rr(g, 14, 14 + k * 34, 22, 22, 5); g.fill(); }
+    g.fillStyle = 'rgba(255,255,255,.9)'; g.font = '600 15px system-ui, sans-serif';
+    g.fillText(w.state === 'alert' ? '收到新任务…' : '待命中', 120, 100);
+    w.tex.needsUpdate = true; return;
+  }
+  const p = w.task ? Math.min(1, w.task.progress) : 1;
+  const kind = (w.task && w.task.kind) || w.kind;
+  const dark = kind === 'term';
+  g.fillStyle = dark ? '#16181c' : '#ffffff'; rr(g, 30, 14, W - 60, H - 28, 6); g.fill();
+  g.fillStyle = dark ? '#2a2d33' : '#eef0f3'; rr(g, 30, 14, W - 60, 20, 6); g.fill();
+  ['#ff5f57', '#febc2e', '#28c840'].forEach((c, k) => { g.fillStyle = c; g.beginPath(); g.arc(42 + k * 11, 24, 3.5, 0, 7); g.fill(); });
+  g.fillStyle = dark ? '#c9ccd1' : '#555a62'; g.font = '500 11px system-ui, sans-serif';
+  const title = w.task ? (w.task.label || w.task.text) : ''; g.fillText(title.length > 16 ? title.slice(0, 16) + '…' : title, 80, 28);
+  const X = 42, Y = 44, CW = W - 84, CH = H - 86;
+  if (w.state === 'done') {
+    g.fillStyle = '#1f9d5a'; g.beginPath(); g.arc(W / 2, Y + CH / 2 + 4, 26, 0, 7); g.fill();
+    g.strokeStyle = '#fff'; g.lineWidth = 6; g.lineCap = 'round'; g.beginPath();
+    g.moveTo(W / 2 - 11, Y + CH / 2 + 5); g.lineTo(W / 2 - 2, Y + CH / 2 + 14); g.lineTo(W / 2 + 13, Y + CH / 2 - 6); g.stroke();
+  } else if (kind === 'doc') {
+    const n = Math.floor(2 + p * 9);
+    for (let k = 0; k < n; k++) { g.fillStyle = k === 0 ? '#2fa36b' : '#d4d8de'; const lw = k === 0 ? CW * 0.5 : CW * (0.6 + 0.4 * ((k * 37) % 10) / 10); rr(g, X, Y + k * 9, lw, 5, 2); g.fill(); }
+  } else if (kind === 'chart') {
+    g.strokeStyle = '#e4e7eb'; g.lineWidth = 1;
+    for (let k = 0; k < 4; k++) { g.beginPath(); g.moveTo(X, Y + k * CH / 3); g.lineTo(X + CW, Y + k * CH / 3); g.stroke(); }
+    const pts = 14, upto = Math.max(2, Math.floor(p * pts));
+    g.strokeStyle = '#e0413a'; g.lineWidth = 3; g.lineJoin = 'round'; g.beginPath();
+    for (let k = 0; k < upto; k++) { const xx = X + k * CW / (pts - 1); const yy = Y + CH * (0.75 - 0.5 * k / pts + 0.15 * Math.sin(k * 1.7 + w.seed)); k ? g.lineTo(xx, yy) : g.moveTo(xx, yy); }
+    g.stroke();
+    for (let k = 0; k < 5; k++) { g.fillStyle = 'rgba(224,65,58,.18)'; const bh = CH * 0.2 * (1 + Math.sin(k + w.seed)); g.fillRect(X + 6 + k * 40, Y + CH - bh, 18, bh); }
+  } else if (kind === 'files') {
+    const n = Math.floor(2 + p * 12);
+    for (let k = 0; k < n; k++) { const cx = X + (k % 7) * 32, cy = Y + Math.floor(k / 7) * 34; g.fillStyle = '#f5c242'; rr(g, cx, cy + 4, 24, 18, 3); g.fill(); g.fillStyle = '#e8a91e'; rr(g, cx, cy, 11, 6, 2); g.fill(); }
+  } else if (kind === 'gallery') {
+    const cols = ['#ffd6a5', '#bde0fe', '#cdb4db', '#caffbf', '#ffadad', '#a0c4ff', '#fdffb6', '#9bf6ff'];
+    const n = Math.floor(2 + p * 8);
+    for (let k = 0; k < n; k++) { g.fillStyle = cols[k % 8]; rr(g, X + (k % 4) * 58, Y + Math.floor(k / 4) * 40, 52, 34, 4); g.fill(); }
+  } else if (kind === 'feed') {
+    const off = (t * 18) % 18;
+    g.save(); g.beginPath(); g.rect(X, Y, CW, CH); g.clip();
+    for (let k = -1; k < 6; k++) { const yy = Y + k * 18 + off; g.fillStyle = ['#e8b40c', '#e0413a', '#2f7fe0'][(k + 9) % 3]; g.beginPath(); g.arc(X + 5, yy + 6, 4, 0, 7); g.fill(); g.fillStyle = '#d4d8de'; rr(g, X + 16, yy + 3, CW * (0.5 + 0.08 * ((k + 9) % 5)), 6, 3); g.fill(); }
+    g.restore();
+  } else if (kind === 'term') {
+    g.font = '11px ui-monospace, Consolas, monospace';
+    const n = Math.floor(2 + p * 6);
+    const lines = ['$ diagnose --net', 'ping gateway ... ok', 'dns 8.8.8.8 ... ok', 'reset adapter', 'renew dhcp ... ok', 'flush cache ... ok', 'speed 214 Mbps', 'all good ✔'];
+    for (let k = 0; k < n; k++) { g.fillStyle = k === 0 ? '#9aa1aa' : '#5be39b'; g.fillText(lines[k], X, Y + 8 + k * 12); }
+  }
+  // progress bar
+  g.fillStyle = dark ? '#2a2d33' : '#eef0f3'; rr(g, X, H - 34, CW, 6, 3); g.fill();
+  g.fillStyle = w.state === 'done' ? '#1f9d5a' : w.color; rr(g, X, H - 34, Math.max(6, CW * p), 6, 3); g.fill();
+  w.tex.needsUpdate = true;
+}
+
+// ---------- overlay bubbles ----------
+const bubbles = [];
+function addBubble(cls, getPos) {
+  const el = document.createElement('div'); el.className = 'bubble hidden ' + cls; overlay.appendChild(el);
+  const b = { el, getPos, text: '' }; bubbles.push(b); return b;
+}
+function setBubble(b, text) { if (b.text === text) return; b.text = text; if (text) b.el.textContent = text; b.el.classList.toggle('hidden', !text); }
+const tmpV = new THREE.Vector3();
+function placeBubbles() {
+  const w = stage.clientWidth, h = stage.clientHeight;
+  for (const b of bubbles) {
+    if (!b.text) continue;
+    b.getPos(tmpV); tmpV.project(camera);
+    b.el.style.transform = `translate(${((tmpV.x + 1) / 2 * w).toFixed(1)}px, ${((1 - tmpV.y) / 2 * h).toFixed(1)}px) translate(-50%, -100%)`;
+  }
+}
+workers.forEach(w => {
+  w.bubble = addBubble('', v => v.set(w.x - 1.15, 2.75, w.z + 1.1));
+  w.zz = addBubble('zz', v => v.set(w.x + 0.7, 2.9, w.z + 1.1));
+});
+const mgrBubble = addBubble('mgr', v => v.set(mgr.root.position.x, 3.9, mgr.root.position.z));
+
+// ---------- UI ----------
+const $ = id => document.getElementById(id);
+const sel = $('assignee');
+sel.add(new Option('自动分配', '-1'));
+workers.forEach(w => sel.add(new Option(`${w.name} · ${w.role}`, String(w.i))));
+EXAMPLES.forEach(t => { const b = document.createElement('button'); b.type = 'button'; b.className = 'chip'; b.textContent = t; b.onclick = () => submitTask(t, +sel.value); $('chips').appendChild(b); });
+
+const team = $('team');
+workers.forEach(w => {
+  const row = document.createElement('div'); row.className = 'member'; row.tabIndex = 0;
+  row.innerHTML = `<span class="dot" style="background:${w.color}"></span><div class="who"><b></b><small></small><div class="task"></div></div><span class="pill"></span>`;
+  row.querySelector('b').textContent = w.name; row.querySelector('small').textContent = w.role;
+  row.onclick = () => { sel.value = String(w.i); $('task').focus(); };
+  row.onkeydown = e => { if (e.key === 'Enter') row.onclick(); };
+  team.appendChild(row); w.row = row;
+});
+function renderTeam() {
+  let busy = 0;
+  workers.forEach(w => {
+    w.row.hidden = !!w.offline;
+    if (w.offline) return;
+    const pill = w.row.querySelector('.pill'), task = w.row.querySelector('.task');
+    let label = '休息', cls = 'pill';
+    if (w.reserved && w.state !== 'working') { label = '经理赶来'; cls += ' assigned'; }
+    else if (w.state === 'working' && w.task.live) { label = w.task.awaiting ? '等你确认' : `第 ${w.task.steps} 步`; cls += w.task.awaiting ? ' assigned' : ' working'; busy++; }
+    else if (w.state === 'working') { label = Math.floor(w.task.progress * 100) + '%'; cls += ' working'; busy++; }
+    else if (w.state === 'done') { label = '完成'; cls += ' done'; }
+    else if (w.state === 'idle' || w.state === 'alert') label = '待命';
+    pill.textContent = label; pill.className = cls;
+    const t = w.task ? w.task.text : (w.lastTask ? '上一单：' + w.lastTask : '暂无任务');
+    task.textContent = t;
+  });
+  $('busyCount').textContent = `${busy}/${workers.filter(w => !w.offline).length} 在忙`;
+  const q = queue.length;
+  $('queue').textContent = manager.busy ? (q ? `经理正在交代任务，还有 ${q} 单排队` : '经理正在交代任务') : (q ? `${q} 单排队中，等同事空出来` : '经理待命中');
+}
+function addLog(text, color, example) {
+  const li = document.createElement('li');
+  const d = new Date(); const tm = document.createElement('time');
+  tm.textContent = `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}:${String(d.getSeconds()).padStart(2, '0')}`;
+  const span = document.createElement('span'); span.textContent = text;
+  if (color) span.style.borderLeft = `3px solid ${color}`, span.style.paddingLeft = '6px';
+  if (example) { const ex = document.createElement('span'); ex.className = 'ex'; ex.textContent = '示例'; span.appendChild(ex); }
+  li.append(tm, span); $('log').prepend(li);
+  while ($('log').children.length > 40) $('log').lastChild.remove();
+}
+
+// ---------- task logic ----------
+const queue = [];
+function submitTask(text, target) {
+  text = (text || '').trim(); if (!text) return;
+  if (live.on) {
+    const sid = target >= 0 ? workers[target].serverId : undefined;
+    live.send({ type: 'task', text, target: sid });
+    return;
+  }
+  queue.push({ text, target: target >= 0 ? target : -1, progress: 0, dur: 9 + Math.random() * 7 });
+  addLog(`你：${text}${target >= 0 ? '（指定 ' + workers[target].name + '）' : ''}`, '#ff6a13');
+  pump();
+}
+$('form').addEventListener('submit', e => { e.preventDefault(); submitTask($('task').value, +sel.value); $('task').value = ''; });
+
+const available = w => !w.offline && !w.reserved && (w.state === 'sleep' || w.state === 'idle' || w.state === 'done');
+function pickWorker(task) {
+  if (task.target >= 0) return available(workers[task.target]) ? workers[task.target] : null;
+  const free = workers.filter(available);
+  if (!free.length) return null;
+  let best = null, bestScore = -1;
+  for (const w of free) { const s = w.keys.reduce((a, k) => a + (task.text.toLowerCase().includes(k) ? 1 : 0), 0); if (s > bestScore) { best = w; bestScore = s; } }
+  if (bestScore > 0) return best;
+  // no free specialist: still wait for a busy specialist if one exists and is matched
+  const spec = workers.find(w => w.keys.some(k => task.text.includes(k)));
+  if (spec && !available(spec)) return free.find(w => w.state !== 'sleep') || free[0];
+  return free.find(w => w.state === 'idle') || free[0];
+}
+function pump() {
+  if (manager.busy) return renderTeam();
+  for (let k = 0; k < queue.length; k++) {
+    const w = pickWorker(queue[k]);
+    if (w) { const task = queue.splice(k, 1)[0]; dispatch(task, w); break; }
+  }
+  renderTeam();
+}
+
+const wait = ms => new Promise(r => setTimeout(r, ms));
+function walk(points) { return new Promise(res => { manager.path = points.slice(); manager.walking = true; manager.onArrive = res; }); }
+function routeTo(w) {
+  const gx = w.x < 0 ? -3 : 3;
+  const sx = w.x + Math.sign(gx - w.x) * 1.8;
+  const tz = w.z + 1.15;
+  return [{ x: gx, z: HOME.z }, { x: gx, z: tz }, { x: sx, z: tz }];
+}
+async function dispatch(task, w) {
+  manager.busy = true; w.reserved = true; renderTeam();
+  setBubble(mgrBubble, '收到！我去找' + w.name);
+  await wait(900);
+  setBubble(mgrBubble, '');
+  const route = routeTo(w);
+  await walk(route);
+  // face the worker
+  manager.yaw = Math.atan2(w.x - mgr.root.position.x, (w.z + 1.12) - mgr.root.position.z);
+  manager.tapT = 1;               // tap-on-shoulder animation
+  await wait(350);
+  if (w.state === 'sleep') { setBubble(w.zz, ''); setBubble(w.bubble, '！醒了醒了'); }
+  else setBubble(w.bubble, '！');
+  w.state = 'alert';
+  w.yawTarget = Math.PI + (mgr.root.position.x > w.x ? 0.95 : -0.95);
+  await wait(800);
+  setBubble(w.bubble, '');
+  setBubble(mgrBubble, task.text);
+  await wait(1700);
+  setBubble(mgrBubble, '');
+  w.nodT = 1; setBubble(w.bubble, '好的，马上办');
+  await wait(1000);
+  setBubble(w.bubble, '');
+  w.yawTarget = Math.PI;
+  startTask(w, task);
+  addLog(`经理 → ${w.name}：${task.text}`, w.color);
+  manager.busy = false;           // free to take the next order (walks back unless a new one comes)
+  if (queue.some(t => pickWorker(t))) { pump(); return; }
+  setBubble(mgrBubble, '');
+  const back = route.slice(0, -1).reverse(); back.push({ x: HOME.x, z: HOME.z });
+  await walk(back);
+  if (!manager.walking) manager.yaw = 0;
+}
+function startTask(w, task, example) {
+  w.task = task; w.state = 'working'; w.reserved = false; w.lastDraw = 0;
+  setBubble(w.zz, '');
+}
+
+// ---------- animation ----------
+const clock = new THREE.Clock();
+let elapsed = 0;
+const lerp = (a, b, t) => a + (b - a) * t;
+function lerpAngle(a, b, t) { let d = ((b - a + Math.PI) % (Math.PI * 2)) - Math.PI; if (d < -Math.PI) d += Math.PI * 2; return a + d * t; }
+
+function updateManager(dt) {
+  const r = mgr.root;
+  if (manager.walking && manager.path.length) {
+    const tgt = manager.path[0];
+    const dx = tgt.x - r.position.x, dz = tgt.z - r.position.z, dist = Math.hypot(dx, dz);
+    const speed = 4.2;
+    if (dist < 0.05) { manager.path.shift(); if (!manager.path.length) { manager.walking = false; const f = manager.onArrive; manager.onArrive = null; f && f(); } }
+    else { const s = Math.min(dist, speed * dt); r.position.x += dx / dist * s; r.position.z += dz / dist * s; manager.yaw = Math.atan2(dx, dz); }
+    manager.walkPhase += dt * 11;
+  }
+  const walking = manager.walking;
+  r.rotation.y = lerpAngle(r.rotation.y, manager.yaw, Math.min(1, dt * 10));
+  const sw = walking ? Math.sin(manager.walkPhase) : 0;
+  mgr.legs[0].rotation.x = lerp(mgr.legs[0].rotation.x, sw * 0.7, 0.3);
+  mgr.legs[1].rotation.x = lerp(mgr.legs[1].rotation.x, -sw * 0.7, 0.3);
+  r.position.y = 0.62 + (walking ? Math.abs(Math.cos(manager.walkPhase)) * 0.12 : 0);
+  mgr.upper.rotation.z = walking ? sw * 0.06 : 0;
+  // tap animation: right arm reaches out, body leans
+  if (manager.tapT > 0) manager.tapT = Math.max(0, manager.tapT - dt * 0.9);
+  const tap = manager.tapT > 0 ? Math.sin((1 - manager.tapT) * Math.PI) : 0;
+  const tapPat = manager.tapT > 0 ? Math.sin((1 - manager.tapT) * 30) * 0.25 : 0;
+  mgr.arms[1].rotation.x = lerp(mgr.arms[1].rotation.x, walking ? -sw * 0.6 : -tap * 1.9 + tapPat * tap, 0.3);
+  mgr.arms[0].rotation.x = lerp(mgr.arms[0].rotation.x, walking ? sw * 0.6 : -0.5, 0.3);
+  mgr.upper.rotation.x = lerp(mgr.upper.rotation.x, tap * 0.22, 0.3);
+  // idle breathing + glance
+  if (!walking && !manager.busy) mgr.head.rotation.y = Math.sin(elapsed * 0.6) * 0.25;
+  else mgr.head.rotation.y = lerp(mgr.head.rotation.y, 0, 0.2);
+  mgr.upper.scale.y = 1 + Math.sin(elapsed * 2.2) * 0.012;
+}
+
+function updateWorker(w, dt) {
+  if (w.offline) return;
+  const c = w.c, t = elapsed + w.seed;
+  let headX = 0, headZ = 0, eyesOpen = 1, armA = -0.25, armB = -0.25, bob = 0;
+  if (w.state === 'sleep') {
+    headX = 0.5 + Math.sin(t * 1.2) * 0.04; headZ = 0.15; eyesOpen = 0.12; bob = Math.sin(t * 1.2) * 0.02;
+    setBubble(w.zz, w.reserved ? '' : 'z Z');
+  } else if (w.state === 'idle') {
+    headX = 0.05; headZ = Math.sin(t * 0.7) * 0.15;
+    w.idleT -= dt; if (w.idleT <= 0 && !w.reserved) { w.state = 'sleep'; w.lastDraw = 0; }
+  } else if (w.state === 'alert') {
+    headX = -0.1;
+  } else if (w.state === 'working' && w.task.live) {
+    const lt = w.task;
+    if (lt.awaiting) {
+      // raise a hand and look back toward you
+      armA = -0.3; armB = -2.9 + Math.sin(t * 6) * 0.15; headX = -0.25; bob = Math.abs(Math.sin(t * 4)) * 0.04;
+      setBubble(w.bubble, '✋ 等你确认');
+    } else {
+      headX = 0.12 + Math.sin(t * 3) * 0.04; headZ = Math.sin(t * 1.3) * 0.08;
+      armA = -1.15 + Math.sin(t * 16) * 0.18; armB = -1.15 + Math.sin(t * 16 + 2) * 0.18; bob = Math.abs(Math.sin(t * 8)) * 0.02;
+      setBubble(w.bubble, lt.label ? (lt.label.length > 18 ? lt.label.slice(0, 18) + '…' : lt.label) : '思考中…');
+    }
+    // no real percentage exists: ease toward 1 as steps accumulate
+    lt.progress = lerp(lt.progress, 1 - 1 / (1 + 0.45 * lt.steps), Math.min(1, dt * 2));
+    if (lt.finished) {
+      w.state = 'done'; w.doneT = 3.2; w.lastDraw = 0; lt.progress = 1;
+      setBubble(w.bubble, lt.ok ? '✓ 搞定' : '✗ 出错了');
+      addLog(`${w.name} 汇报：${lt.summary.length > 140 ? lt.summary.slice(0, 140) + '…' : lt.summary}`, w.color);
+      w.lastTask = lt.text;
+      setTimeout(pump, 50);
+    }
+  } else if (w.state === 'working') {
+    headX = 0.12 + Math.sin(t * 3) * 0.04; headZ = Math.sin(t * 1.3) * 0.08;
+    armA = -1.15 + Math.sin(t * 16) * 0.18; armB = -1.15 + Math.sin(t * 16 + 2) * 0.18; bob = Math.abs(Math.sin(t * 8)) * 0.02;
+    w.task.progress += dt / w.task.dur;
+    setBubble(w.bubble, Math.min(99, Math.floor(w.task.progress * 100)) + '%');
+    if (w.task.progress >= 1) {
+      w.state = 'done'; w.doneT = 3.2; w.lastDraw = 0; w.task.progress = 1;
+      setBubble(w.bubble, '✓ 搞定');
+      addLog(`${w.name} 完成：${w.task.text}`, w.color);
+      w.lastTask = w.task.text;
+      setTimeout(pump, 50);
+    }
+  } else if (w.state === 'done') {
+    const k = Math.max(0, w.doneT - 2.2);
+    armA = armB = -2.6 * Math.min(1, k * 2); bob = Math.abs(Math.sin(t * 10)) * 0.12 * Math.min(1, k);
+    headX = -0.15;
+    w.doneT -= dt;
+    if (w.doneT <= 0) { w.state = 'idle'; w.idleT = 6; w.task = null; w.lastDraw = 0; setBubble(w.bubble, ''); pump(); }
+  }
+  if (w.nodT > 0) { w.nodT = Math.max(0, w.nodT - dt * 1.1); headX += Math.sin((1 - w.nodT) * Math.PI * 4) * 0.25 * w.nodT; }
+  c.head.rotation.x = lerp(c.head.rotation.x, headX, Math.min(1, dt * 6));
+  c.head.rotation.z = lerp(c.head.rotation.z, headZ, Math.min(1, dt * 4));
+  c.arms[0].rotation.x = lerp(c.arms[0].rotation.x, armA, Math.min(1, dt * 12));
+  c.arms[1].rotation.x = lerp(c.arms[1].rotation.x, armB, Math.min(1, dt * 12));
+  c.eyes.forEach(e => e.scale.y = lerp(e.scale.y, eyesOpen, 0.25));
+  c.upper.position.y = bob;
+  c.upper.scale.y = 1 + Math.sin(t * (w.state === 'sleep' ? 1.2 : 2.4)) * 0.015;
+  c.root.rotation.y = lerpAngle(c.root.rotation.y, w.yawTarget, Math.min(1, dt * 5));
+  // screen redraw throttle
+  const interval = w.state === 'working' ? 0.2 : 1.5;
+  if (elapsed - w.lastDraw > interval || w.lastDraw === 0) { drawScreen(w, elapsed); w.lastDraw = elapsed || 0.001; }
+}
+
+function resize() {
+  const w = stage.clientWidth, h = stage.clientHeight;
+  renderer.setSize(w, h, false);
+  const aspect = w / h;
+  const hh = Math.max(6.6, 9.8 / aspect);
+  camera.left = -hh * aspect; camera.right = hh * aspect; camera.top = hh; camera.bottom = -hh;
+  camera.updateProjectionMatrix();
+}
+new ResizeObserver(resize).observe(stage);
+resize();
+
+// click a critter to pick it as the assignee
+const ray = new THREE.Raycaster(), ndc = new THREE.Vector2();
+function hitWorker(e) {
+  const r = renderer.domElement.getBoundingClientRect();
+  ndc.set(((e.clientX - r.left) / r.width) * 2 - 1, -((e.clientY - r.top) / r.height) * 2 + 1);
+  ray.setFromCamera(ndc, camera);
+  const hit = ray.intersectObjects(workers.filter(w => !w.offline).map(w => w.c.root), true)[0];
+  return hit ? hit.object.userData.worker : null;
+}
+renderer.domElement.addEventListener('pointermove', e => { renderer.domElement.style.cursor = hitWorker(e) ? 'pointer' : 'default'; });
+renderer.domElement.addEventListener('click', e => {
+  const w = hitWorker(e); if (!w) return;
+  sel.value = String(w.i); $('task').focus();
+  setBubble(w.bubble, `选中 ${w.name} · ${w.role}`);
+  setTimeout(() => { if (w.bubble.text.startsWith('选中')) setBubble(w.bubble, ''); }, 1400);
+});
+
+// opening state: a few colleagues already busy (example tasks)
+[[1, '汇总本月报表', 0.35], [2, '归档桌面截图', 0.6], [3, '筛选周末旅行照片', 0.15]].forEach(([i, text, p]) => {
+  const w = workers[i];
+  startTask(w, { text, progress: p, dur: 14 + i * 3 });
+  addLog(`${w.name} 正在：${text}`, w.color, true);
+});
+workers.forEach(w => drawScreen(w, 0));
+renderTeam();
+
+// ---------- live mode: driven by the pi backend over WebSocket ----------
+const live = { on: false, ws: null, bySid: {}, subs: {}, send(m) { if (this.ws && this.ws.readyState === 1) this.ws.send(JSON.stringify(m)); } };
+function setConn(text, cls) { const el = $('conn'); el.textContent = text; el.className = 'conn ' + (cls || ''); }
+
+function enterLive(hello) {
+  live.on = true;
+  setConn(`${hello.mode === 'mock' ? '模拟模型' : '实时'} · ${hello.model}`, 'live');
+  queue.length = 0; $('log').innerHTML = ''; $('chips').hidden = false;
+  live.bySid = {};
+  const byDesk = {}; hello.workers.forEach(h => byDesk[h.desk] = h);
+  workers.forEach(w => {
+    const h = byDesk[w.i];
+    w.task = null; w.reserved = false; w.state = 'sleep'; w.lastDraw = 0; w.yawTarget = Math.PI;
+    setBubble(w.bubble, ''); setBubble(w.zz, '');
+    w.offline = !h; w.c.root.visible = !!h;
+    if (h) {
+      Object.assign(w, { serverId: h.id, name: h.name, role: h.role, color: h.color });
+      w.c.scarf.material.color.set(h.color);
+      w.row.querySelector('b').textContent = h.name; w.row.querySelector('small').textContent = h.role;
+      w.row.querySelector('.dot').style.background = h.color;
+      live.bySid[h.id] = w;
+    }
+    drawScreen(w, 0);
+  });
+  sel.innerHTML = ''; sel.add(new Option('经理决定', '-1'));
+  workers.filter(w => !w.offline).forEach(w => sel.add(new Option(`${w.name} · ${w.role}`, String(w.i))));
+  addLog(`已连接 pi 后端，${hello.workers.length} 位同事上岗。空工位以后可以加人。`);
+  renderTeam();
+}
+
+function onLiveEvent(e) {
+  const w = e.worker ? live.bySid[e.worker] : null;
+  switch (e.type) {
+    case 'hello': enterLive(e); break;
+    case 'task_received':
+      addLog(`你：${e.text}`, '#ff6a13');
+      if (!manager.walking) { setBubble(mgrBubble, '收到，我想想怎么安排…'); setTimeout(() => { if (mgrBubble.text.startsWith('收到，我想想')) setBubble(mgrBubble, ''); }, 2500); }
+      break;
+    case 'delegate': {
+      if (!w) break;
+      const task = { live: true, text: e.instruction, target: w.i, progress: 0, steps: 0, label: '', kind: null, awaiting: false, finished: false };
+      live.subs[e.subId] = task;
+      queue.push(task); pump();
+      break;
+    }
+    case 'worker_step': {
+      const task = live.subs[e.subId]; if (!task) break;
+      task.steps++; task.label = e.label; task.kind = e.kind;
+      if (w) w.lastDraw = 0;
+      break;
+    }
+    case 'need_approval': {
+      if (w && w.task && w.task.live) w.task.awaiting = true;
+      else if (w) { const t = Object.values(live.subs).find(s => s.target === w.i && !s.finished); if (t) t.awaiting = true; }
+      showApproval(e, w);
+      break;
+    }
+    case 'approval_result': {
+      document.querySelector(`[data-approval="${e.approvalId}"]`)?.remove();
+      Object.values(live.subs).forEach(s => { if (w ? s.target === w.i : true) s.awaiting = false; });
+      addLog(e.approved ? '你同意了这个操作' : '你拒绝了这个操作');
+      break;
+    }
+    case 'worker_done': {
+      const task = live.subs[e.subId]; if (!task) break;
+      task.finished = true; task.ok = e.ok; task.summary = e.summary; task.awaiting = false;
+      delete live.subs[e.subId];
+      break;
+    }
+    case 'manager_reply':
+      $('reportPanel').hidden = false; $('report').textContent = e.text;
+      addLog(`经理：${e.text.length > 140 ? e.text.slice(0, 140) + '…' : e.text}`, '#ff6a13');
+      setBubble(mgrBubble, '汇报完毕，看右边'); setTimeout(() => { if (mgrBubble.text === '汇报完毕，看右边') setBubble(mgrBubble, ''); }, 3000);
+      break;
+    case 'error':
+      addLog(`出错：${e.message}`, '#d23b33');
+      break;
+  }
+  renderTeam();
+}
+
+function showApproval(e, w) {
+  const card = document.createElement('div'); card.className = 'approval'; card.dataset.approval = e.approvalId;
+  const p = document.createElement('p'); const b = document.createElement('b'); b.textContent = `${w ? w.name : e.worker} 想要：`;
+  p.append(b, document.createTextNode(e.summary));
+  const row = document.createElement('div'); row.className = 'row';
+  const yes = document.createElement('button'); yes.className = 'yes'; yes.type = 'button'; yes.textContent = '同意';
+  const no = document.createElement('button'); no.type = 'button'; no.textContent = '拒绝';
+  yes.onclick = () => { live.send({ type: 'approve', approvalId: e.approvalId, approved: true }); card.remove(); };
+  no.onclick = () => { live.send({ type: 'approve', approvalId: e.approvalId, approved: false }); card.remove(); };
+  row.append(yes, no); card.append(p, row); $('approvals').appendChild(card);
+}
+
+function connectLive() {
+  if (!/^https?:$/.test(location.protocol) || !/^(localhost|127\.0\.0\.1)$/.test(location.hostname)) return;
+  let ws;
+  try { ws = new WebSocket(`ws://${location.host}`); } catch { return; }
+  live.ws = ws;
+  ws.onmessage = m => { try { onLiveEvent(JSON.parse(m.data)); } catch (err) { console.error(err); } };
+  ws.onclose = () => {
+    if (live.on) { setConn('连接断开，重连中…', 'off'); setTimeout(connectLive, 2000); }
+  };
+}
+connectLive();
+
+let camDrift = 0;
+function frame() {
+  const dt = Math.min(clock.getDelta(), 0.05);
+  elapsed += dt;
+  updateManager(dt);
+  workers.forEach(w => updateWorker(w, dt));
+  if (!reduceMotion) {
+    camDrift += dt;
+    camera.position.set(camTarget.x + Math.sin(camDrift * 0.12) * 0.6, camTarget.y + camOffset.y, camTarget.z + camOffset.z);
+    camera.lookAt(camTarget);
+  }
+  renderer.render(scene, camera);
+  placeBubbles();
+  if (Math.floor(elapsed * 4) !== Math.floor((elapsed - dt) * 4)) renderTeam();
+  requestAnimationFrame(frame);
+}
+requestAnimationFrame(frame);
+})();
+</script>
